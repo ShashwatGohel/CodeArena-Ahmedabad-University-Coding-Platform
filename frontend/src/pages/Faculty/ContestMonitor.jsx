@@ -23,6 +23,10 @@ const ContestMonitor = () => {
   const [unlockingId, setUnlockingId] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
 
+  // Grading state
+  const [gradingSearchQuery, setGradingSearchQuery] = useState('');
+  const [gradingSelectedStudent, setGradingSelectedStudent] = useState(null);
+
   // Problem Modal State
   const [showProblemModal, setShowProblemModal] = useState(false);
   const [editingProblemId, setEditingProblemId] = useState(null);
@@ -253,6 +257,53 @@ const ContestMonitor = () => {
     finally { setRerunning(false); }
   };
 
+  const handleUpdateGrade = async (subId, grade) => {
+    if (grade < 0 || grade > 15) { alert("Grade must be between 0 and 15"); return; }
+    try {
+      const res = await fetch(`http://localhost:5000/api/submissions/${subId}/grade`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ grade: Number(grade) })
+      });
+      if (res.ok) {
+        const updatedSub = await res.json();
+        setSubmissions(submissions.map(s => s._id === subId ? updatedSub : s));
+      } else {
+        alert("Failed to update grade");
+      }
+    } catch (e) { console.error(e); }
+  };
+
+  const handleDownloadGradesCSV = () => {
+    const submittedStudents = {};
+    submissions.forEach(sub => {
+      if (!sub.student || sub.isRun) return;
+      const sid = sub.student._id;
+      if (!submittedStudents[sid]) {
+        submittedStudents[sid] = { name: sub.student.name, idNumber: sub.student.idNumber, grade: null };
+      }
+      if (sub.manualGrade !== undefined && sub.manualGrade !== null && submittedStudents[sid].grade === null) {
+        submittedStudents[sid].grade = Number(sub.manualGrade);
+      }
+    });
+
+    const rows = [
+      ["Student Name", "ID Number", "Final Grade"]
+    ];
+    Object.values(submittedStudents).forEach(s => {
+      rows.push([s.name, s.idNumber, s.grade]);
+    });
+
+    const csvContent = "data:text/csv;charset=utf-8," + rows.map(e => e.map(cell => `"${cell}"`).join(",")).join("\n");
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement("a");
+    link.setAttribute("href", encodedUri);
+    link.setAttribute("download", `${contest.title}_Grades.csv`);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+  };
+
   const handleDownloadAll = async () => {
     const zip = new JSZip();
     
@@ -370,7 +421,7 @@ const ContestMonitor = () => {
       <div className="flex">
         {/* Sidebar Tabs */}
         <aside className="w-64 border-r border-white/5 h-[calc(100vh-80px)] p-6 space-y-2 sticky top-[80px]">
-          {['overview', 'problems', 'participants', 'submissions', 'violations'].map(tab => (
+          {['overview', 'problems', 'participants', 'submissions', 'grading', 'violations'].map(tab => (
             <button 
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -768,6 +819,137 @@ const ContestMonitor = () => {
                   )}
                 </>
               )}
+            </div>
+          )}
+
+          {activeTab === 'grading' && (
+            <div className="space-y-6">
+              <div className="flex justify-between items-center">
+                <h2 className="text-xl font-bold">Manual Grading</h2>
+                <div className="flex items-center gap-4">
+                  <div className="relative">
+                    <svg className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-white/30" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                    <input 
+                      type="text" 
+                      placeholder="Search students..." 
+                      value={gradingSearchQuery}
+                      onChange={(e) => setGradingSearchQuery(e.target.value)}
+                      className="w-64 pl-10 pr-4 py-2 bg-[#0d0d0d] border border-white/10 rounded-xl text-xs text-white placeholder-white/30 focus:outline-none focus:border-blue-500/50 transition-colors"
+                    />
+                  </div>
+                  <button 
+                    onClick={handleDownloadGradesCSV}
+                    className="px-6 py-2 bg-emerald-600/20 border border-emerald-500/30 text-emerald-400 text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-emerald-500/30 transition-colors flex items-center gap-2"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                    Download Grades (CSV)
+                  </button>
+                </div>
+              </div>
+
+              {(() => {
+                const gradingStudents = {};
+                submissions.forEach(sub => {
+                  if (!sub.student || sub.isRun) return;
+                  const sid = sub.student._id;
+                  if (!gradingStudents[sid]) {
+                    gradingStudents[sid] = {
+                      student: sub.student,
+                      grade: null,
+                      latestSubId: sub._id,
+                      subsByProblem: {}
+                    };
+                  }
+                  if (sub.manualGrade !== undefined && sub.manualGrade !== null && gradingStudents[sid].grade === null) {
+                    gradingStudents[sid].grade = sub.manualGrade;
+                  }
+                  const pid = sub.problem?._id;
+                  if (pid && !gradingStudents[sid].subsByProblem[pid]) {
+                    gradingStudents[sid].subsByProblem[pid] = sub;
+                  }
+                });
+
+                const filteredGradingStudents = Object.values(gradingStudents).filter(s => 
+                  s.student.name.toLowerCase().includes(gradingSearchQuery.toLowerCase()) || 
+                  s.student.idNumber.toLowerCase().includes(gradingSearchQuery.toLowerCase())
+                );
+
+                if (!gradingSelectedStudent) {
+                  return (
+                    <div className="bg-[#0d0d0d] border border-white/5 rounded-2xl overflow-hidden">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-white/5 text-[10px] uppercase tracking-widest text-white/40">
+                          <tr>
+                            <th className="px-6 py-4">Student</th>
+                            <th className="px-6 py-4">ID Number</th>
+                            <th className="px-6 py-4">Problems Attempted</th>
+                            <th className="px-6 py-4">Grade / 15</th>
+                            <th className="px-6 py-4 text-right">Action</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {filteredGradingStudents.map(s => (
+                            <tr key={s.student._id} className="border-t border-white/5">
+                              <td className="px-6 py-4 font-bold">{s.student.name}</td>
+                              <td className="px-6 py-4 font-mono text-white/60">{s.student.idNumber}</td>
+                              <td className="px-6 py-4 text-white/60">{Object.keys(s.subsByProblem).length} / {problems.length}</td>
+                              <td className="px-6 py-4">
+                                <input 
+                                  type="number" 
+                                  min="0" max="15"
+                                  defaultValue={s.grade !== null ? s.grade : ''}
+                                  onBlur={(e) => {
+                                    if(e.target.value !== '' && Number(e.target.value) !== s.grade) {
+                                      handleUpdateGrade(s.latestSubId, e.target.value);
+                                    }
+                                  }}
+                                  className="w-20 px-3 py-1.5 bg-black border border-white/10 rounded-lg text-sm text-white font-bold text-center focus:outline-none focus:border-blue-500/50 transition-colors"
+                                />
+                              </td>
+                              <td className="px-6 py-4 text-right">
+                                <button
+                                  onClick={() => setGradingSelectedStudent(s)}
+                                  className="px-3 py-1 bg-blue-500/10 text-blue-400 text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-blue-500/20 transition-colors"
+                                >Review Code</button>
+                              </td>
+                            </tr>
+                          ))}
+                          {filteredGradingStudents.length === 0 && (
+                            <tr><td colSpan="5" className="px-6 py-12 text-center text-white/40 uppercase tracking-widest">No submissions available for grading.</td></tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  );
+                } else {
+                  return (
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-4 mb-2">
+                        <button onClick={() => setGradingSelectedStudent(null)} className="text-white/40 hover:text-white text-xs font-bold">← Back to List</button>
+                        <div className="h-4 w-px bg-white/10" />
+                        <div>
+                          <h2 className="text-xl font-bold">{gradingSelectedStudent.student.name}'s Code</h2>
+                          <p className="text-[10px] text-white/40 font-mono uppercase tracking-widest">{gradingSelectedStudent.student.idNumber}</p>
+                        </div>
+                      </div>
+                      
+                      {Object.entries(gradingSelectedStudent.subsByProblem).map(([pid, sub]) => (
+                        <div key={pid} className="bg-[#0d0d0d] border border-white/5 rounded-2xl overflow-hidden mb-6">
+                          <div className="p-4 border-b border-white/5 bg-white/[0.02]">
+                            <p className="font-bold text-sm">{sub.problem?.title}</p>
+                            <p className="text-[10px] text-white/40 font-mono uppercase tracking-widest">{sub.language} • {sub.status}</p>
+                          </div>
+                          <div className="p-4 bg-black/40">
+                            <pre className="font-mono text-xs text-white/70 overflow-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-white/10">
+                              {sub.code}
+                            </pre>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }
+              })()}
             </div>
           )}
 

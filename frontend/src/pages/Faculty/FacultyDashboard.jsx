@@ -62,7 +62,7 @@ const FacultyDashboard = () => {
 
   const handleTerminateContest = async (contestId) => {
     try {
-      const response = await fetch(`http://localhost:5000/api/contests/${contestId}`, { method: 'DELETE' });
+      const response = await fetch(`http://localhost:5000/api/contests/${contestId}/terminate`, { method: 'POST' });
       if (response.ok) setContests(contests.filter(c => c._id !== contestId));
     } catch (error) { console.error(error); }
   };

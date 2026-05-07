@@ -53,9 +53,17 @@ const submissionSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  manualGrade: {
+    type: Number,
+    default: null
+  },
   submittedAt: {
     type: Date,
     default: Date.now
+  },
+  isRun: {
+    type: Boolean,
+    default: false
   }
 });
 

@@ -9,6 +9,9 @@ const Terminal = ({ onCommand, results }) => {
   const fitAddonRef = useRef(null);
   const currentLineRef = useRef('');
 
+  const historyRef = useRef([]);
+  const historyIndexRef = useRef(-1);
+
   useEffect(() => {
     if (!terminalRef.current) return;
 
@@ -42,7 +45,7 @@ const Terminal = ({ onCommand, results }) => {
     fitAddonRef.current = fitAddon;
 
     term.writeln('\x1b[1;35mCodeArena Interactive Linux Environment\x1b[0m');
-    term.writeln('Type commands and press Enter to execute.');
+    term.writeln('Type commands and press Enter to execute. Use UP/DOWN arrows for history.');
     term.write('\r\n\x1b[1;32mstudent@codearena\x1b[0m:\x1b[1;34m~\x1b[0m$ ');
 
     term.onData((data) => {
@@ -50,7 +53,16 @@ const Terminal = ({ onCommand, results }) => {
       if (code === 13) { // Enter
         const cmd = currentLineRef.current.trim();
         term.write('\r\n');
+        
         if (cmd) {
+          historyRef.current.push(cmd);
+          historyIndexRef.current = -1;
+        }
+
+        if (cmd === 'clear') {
+          term.clear();
+          term.write('\x1b[1;32mstudent@codearena\x1b[0m:\x1b[1;34m~\x1b[0m$ ');
+        } else if (cmd) {
           onCommand(cmd);
         } else {
           term.write('\x1b[1;32mstudent@codearena\x1b[0m:\x1b[1;34m~\x1b[0m$ ');
@@ -61,8 +73,32 @@ const Terminal = ({ onCommand, results }) => {
           currentLineRef.current = currentLineRef.current.slice(0, -1);
           term.write('\b \b');
         }
+      } else if (code === 27) { // Escape Sequences (Arrows)
+        if (data === '\x1b[A') { // Up Arrow
+          if (historyRef.current.length > 0) {
+            if (historyIndexRef.current < historyRef.current.length - 1) {
+              historyIndexRef.current++;
+            }
+            const cmd = historyRef.current[historyRef.current.length - 1 - historyIndexRef.current];
+            term.write('\b \b'.repeat(currentLineRef.current.length)); // Clear current typed text
+            currentLineRef.current = cmd;
+            term.write(cmd);
+          }
+        } else if (data === '\x1b[B') { // Down Arrow
+          if (historyIndexRef.current > 0) {
+            historyIndexRef.current--;
+            const cmd = historyRef.current[historyRef.current.length - 1 - historyIndexRef.current];
+            term.write('\b \b'.repeat(currentLineRef.current.length));
+            currentLineRef.current = cmd;
+            term.write(cmd);
+          } else if (historyIndexRef.current === 0) {
+            historyIndexRef.current--;
+            term.write('\b \b'.repeat(currentLineRef.current.length));
+            currentLineRef.current = '';
+          }
+        }
       } else if (code < 32) {
-        // Control characters
+        // Ignore other control characters
       } else {
         currentLineRef.current += data;
         term.write(data);
@@ -74,6 +110,9 @@ const Terminal = ({ onCommand, results }) => {
     };
     window.addEventListener('resize', handleResize);
 
+    // Initial fit needs a slight delay sometimes to get accurate dimensions
+    setTimeout(() => fitAddon.fit(), 100);
+
     return () => {
       window.removeEventListener('resize', handleResize);
       term.dispose();
@@ -84,13 +123,14 @@ const Terminal = ({ onCommand, results }) => {
     if (results && xtermRef.current) {
       const term = xtermRef.current;
       if (results.stdout) {
-        term.writeln(results.stdout);
+        // Replace \n with \r\n for xterm
+        term.write(results.stdout.replace(/\n/g, '\r\n') + (results.stdout.endsWith('\n') ? '' : '\r\n'));
       }
       if (results.stderr) {
-        term.writeln('\x1b[31m' + results.stderr + '\x1b[0m');
+        term.write('\x1b[31m' + results.stderr.replace(/\n/g, '\r\n') + '\x1b[0m\r\n');
       }
       if (results.compile_output) {
-        term.writeln('\x1b[33m' + results.compile_output + '\x1b[0m');
+        term.write('\x1b[33m' + results.compile_output.replace(/\n/g, '\r\n') + '\x1b[0m\r\n');
       }
       if (results.error) {
         term.writeln('\x1b[31mError: ' + results.error + '\x1b[0m');
@@ -100,8 +140,8 @@ const Terminal = ({ onCommand, results }) => {
   }, [results]);
 
   return (
-    <div className="w-full h-full bg-[#050505] rounded-xl border border-white/5 overflow-hidden">
-      <div ref={terminalRef} className="w-full h-full p-4" />
+    <div className="w-full h-full bg-[#050505] relative">
+      <div ref={terminalRef} className="absolute inset-0 p-4 overflow-hidden" />
     </div>
   );
 };

@@ -199,19 +199,30 @@ const worker = new Worker('submission-queue', async (job) => {
         const totalTestCases = sampleCases.length;
         const earnedPoints = totalTestCases > 0 ? (totalPassed / totalTestCases) * (problem.points || 100) : 0;
 
-        return { 
-            results: { 
-                sampleCases: sampleResults, 
-                status: finalStatus, 
-                points: earnedPoints,
-                totalPassed,
-                totalTestCases,
-                ...result 
-            } 
+        const detailedResults = { 
+            sampleCases: sampleResults, 
+            status: finalStatus, 
+            points: earnedPoints,
+            totalPassed,
+            totalTestCases,
+            ...result 
         };
+
+        if (submissionId) {
+            await Submission.findByIdAndUpdate(submissionId, {
+                status: finalStatus, // Could be 'Accepted', 'Rejected', etc.
+                results: detailedResults,
+                points: earnedPoints,
+                executionTime: result.executionTime,
+                memoryUsed: result.memoryUsed
+            });
+        }
+
+        return { results: detailedResults };
     } else {
         // Full submission
-        const mainResult = await executeJudge0(normalizedFiles, "", language, jobId, null, mainFile);
+        const firstInput = problem.testCases.length > 0 ? problem.testCases[0].input : "";
+        const mainResult = await executeJudge0(normalizedFiles, firstInput, language, jobId, null, mainFile);
         
         const sampleCases = problem.testCases.filter(tc => tc.isSample);
         const sampleResults = await Promise.all(sampleCases.map(async (tc, idx) => {
@@ -257,11 +268,11 @@ const worker = new Worker('submission-queue', async (job) => {
         const detailedResults = { 
             sampleCases: sampleResults, 
             hidden: { passed: hiddenPassed, total: hiddenCases.length, results: hiddenResults }, 
-            status, 
             points: earnedPoints,
             totalTestCases,
             totalPassed,
-            ...mainResult 
+            ...mainResult,
+            status
         };
 
         await Submission.findByIdAndUpdate(submissionId, {

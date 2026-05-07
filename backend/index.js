@@ -128,6 +128,17 @@ app.delete('/api/contests/:id', async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
 
+app.post('/api/contests/:id/terminate', async (req, res) => {
+  try {
+    const contest = await Contest.findByIdAndUpdate(
+      req.params.id,
+      { status: 'ended', endTime: new Date() },
+      { new: true }
+    );
+    res.json({ message: 'Contest terminated', contest });
+  } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
 // Problem Routes
 app.post('/api/problems', async (req, res) => {
   try {
@@ -224,8 +235,26 @@ app.post('/api/submissions/run', async (req, res) => {
       }
     }
 
-    // Push to queue for "Run" (no submission record in DB)
+    let submissionId = null;
+    if (req.body.type !== 'terminal') {
+      const submission = new Submission({
+        student: studentId,
+        problem: problemId,
+        contest: contestId || null,
+        code: code || (req.body.files && req.body.files[0]?.content) || '',
+        files: req.body.files || [],
+        mainFile: req.body.mainFile,
+        language,
+        status: 'Running',
+        isRun: true
+      });
+      await submission.save();
+      submissionId = submission._id;
+    }
+
+    // Push to queue for "Run"
     const job = await submissionQueue.add('run', {
+      submissionId,
       problemId,
       code,
       files: req.body.files,
@@ -238,7 +267,8 @@ app.post('/api/submissions/run', async (req, res) => {
 
     res.status(202).json({ 
         message: 'Execution queued', 
-        jobId: job.id 
+        jobId: job.id,
+        submissionId
     });
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
@@ -294,6 +324,21 @@ app.get('/api/submissions/:id', async (req, res) => {
             .populate('problem', 'title');
         res.json(submission);
     } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
+// Manually grade a submission
+app.put('/api/submissions/:id/grade', async (req, res) => {
+  try {
+    const { grade } = req.body;
+    const submission = await Submission.findByIdAndUpdate(
+      req.params.id,
+      { manualGrade: grade },
+      { new: true }
+    );
+    res.json(submission);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
 
 app.get('/api/submissions/contest/:contestId', async (req, res) => {

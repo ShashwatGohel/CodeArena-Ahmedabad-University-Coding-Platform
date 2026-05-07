@@ -394,6 +394,7 @@ const ProblemSolve = () => {
         setResults({ ...results, isRun: true });
         setOutputData(results.outputFile || '');
         if (results.outputFile) setEditorTab('output');
+        fetchSubmissions(); // refresh history
       } else {
         setResults({ error: data.message });
       }
@@ -413,6 +414,7 @@ const ProblemSolve = () => {
           problemId, 
           files, 
           language: language.value, 
+          customInput,
           contestId,
           studentId: user.id,
           type: 'terminal',
@@ -878,7 +880,7 @@ const ProblemSolve = () => {
                               {results.status}
                             </p>
                             <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">
-                              {results.executionTime}ms • {results.memoryUsed}MB • {results.points?.toFixed(1) || 0} pts
+                              {results.executionTime}ms • {results.memoryUsed}MB {!results.isRun && `• ${(results.points || 0).toFixed(1)} pts`}
                             </p>
                           </div>
                         </div>
@@ -1004,12 +1006,15 @@ const ProblemSolve = () => {
                         <span className="text-[10px] font-mono text-white/20">#{submissions.length - i}</span>
                         <div>
                           <div className="flex items-center gap-2">
-                            <span className={`text-[10px] font-bold uppercase tracking-widest ${sub.status === 'Accepted' ? 'text-emerald-400' : 'text-red-400'
+                            <span className={`text-[10px] font-bold uppercase tracking-widest ${sub.status === 'Accepted' ? 'text-emerald-400' : sub.status === 'Running' ? 'text-blue-400' : 'text-red-400'
                               }`}>{sub.status}</span>
+                            {sub.isRun && (
+                              <span className="text-[8px] bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-widest">Test Run</span>
+                            )}
                             {sub.isFinal && (
                               <span className="text-[8px] bg-purple-500/20 text-purple-400 px-1.5 py-0.5 rounded font-bold uppercase tracking-widest">Final</span>
                             )}
-                            {problem?.gradingType === 'automatic' && (sub.points > 0 || sub.status === 'Accepted') && (
+                            {problem?.gradingType === 'automatic' && !sub.isRun && (sub.points > 0 || sub.status === 'Accepted') && (
                               <span className={`text-[8px] px-1.5 py-0.5 rounded font-bold ${sub.status === 'Accepted' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-yellow-500/10 text-yellow-400'}`}>
                                 {(sub.points || 0).toFixed(1)} pts
                               </span>
@@ -1048,9 +1053,11 @@ const ProblemSolve = () => {
           <div className="w-full max-w-3xl bg-[#0d0d0d] border border-white/10 rounded-2xl overflow-hidden shadow-2xl max-h-[85vh] flex flex-col">
             <div className="flex justify-between items-center px-6 py-4 border-b border-white/5">
               <div>
-                <p className="text-xs font-bold">Submission #{submissions.length - submissions.findIndex(s => s._id === viewingCode._id)}</p>
+                <p className="text-xs font-bold">
+                  {viewingCode.isRun ? 'Test Run' : 'Submission'} #{submissions.length - submissions.findIndex(s => s._id === viewingCode._id)}
+                </p>
                 <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">
-                  {viewingCode.language} • <span className={viewingCode.status === 'Accepted' ? 'text-emerald-400' : 'text-red-400'}>{viewingCode.status}</span> • {new Date(viewingCode.submittedAt).toLocaleString()}
+                  {viewingCode.language} • <span className={viewingCode.status === 'Accepted' ? 'text-emerald-400' : viewingCode.status === 'Running' ? 'text-blue-400' : 'text-red-400'}>{viewingCode.status}</span> • {new Date(viewingCode.submittedAt).toLocaleString()}
                 </p>
               </div>
               <button onClick={() => setViewingCode(null)} className="text-white/20 hover:text-white text-xl">×</button>
