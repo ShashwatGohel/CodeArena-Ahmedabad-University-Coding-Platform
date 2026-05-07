@@ -68,6 +68,28 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
 
+// Contest Status Auto-Updater
+const updateContestStatus = async (contests) => {
+  const now = new Date();
+  const arr = Array.isArray(contests) ? contests : [contests];
+  let updated = false;
+  for (let c of arr) {
+    if (!c) continue;
+    let newStatus = c.status;
+    if (c.status !== 'ended' && now >= new Date(c.endTime)) {
+      newStatus = 'ended';
+    } else if (c.status === 'upcoming' && now >= new Date(c.startTime) && now < new Date(c.endTime)) {
+      newStatus = 'ongoing';
+    }
+    if (newStatus !== c.status) {
+      await Contest.findByIdAndUpdate(c._id, { status: newStatus });
+      c.status = newStatus;
+      updated = true;
+    }
+  }
+  return updated;
+};
+
 // Contest Routes
 app.post('/api/contests', async (req, res) => {
   try {
@@ -80,6 +102,7 @@ app.post('/api/contests', async (req, res) => {
 app.get('/api/contests/:id', async (req, res) => {
   try {
     const contest = await Contest.findById(req.params.id).populate('participants', 'name idNumber email rating');
+    if (contest) await updateContestStatus(contest);
     res.json(contest);
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
@@ -87,6 +110,7 @@ app.get('/api/contests/:id', async (req, res) => {
 app.get('/api/contests/faculty/:facultyId', async (req, res) => {
   try {
     const contests = await Contest.find({ createdBy: req.params.facultyId }).populate('participants', 'name idNumber');
+    await updateContestStatus(contests);
     res.json(contests);
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
@@ -95,6 +119,7 @@ app.get('/api/contests/student/:studentId', async (req, res) => {
   try {
     const { studentId } = req.params;
     const contests = await Contest.find({ participants: studentId }).populate('createdBy', 'name');
+    await updateContestStatus(contests);
     res.json(contests);
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
