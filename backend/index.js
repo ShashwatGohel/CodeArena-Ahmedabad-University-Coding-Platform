@@ -15,7 +15,8 @@ const Problem = require('./models/Problem');
 const nodemailer = require('nodemailer');
 const axios = require('axios');
 const Violation = require('./models/Violation');
-
+const Subject = require('./models/Classroom');
+const Assignment = require('./models/Assignment');
 dotenv.config();
 
 const app = express();
@@ -93,7 +94,15 @@ const updateContestStatus = async (contests) => {
 // Contest Routes
 app.post('/api/contests', async (req, res) => {
   try {
-    const contest = new Contest({ ...req.body, status: 'upcoming' });
+    const { subjectId } = req.body;
+    let participants = [];
+    if (subjectId) {
+      const subject = await Subject.findById(subjectId);
+      if (subject) {
+        participants = subject.students || [];
+      }
+    }
+    const contest = new Contest({ ...req.body, status: 'upcoming', participants });
     await contest.save();
     res.status(201).json(contest);
   } catch (error) { res.status(500).json({ message: error.message }); }
@@ -161,6 +170,113 @@ app.post('/api/contests/:id/terminate', async (req, res) => {
       { new: true }
     );
     res.json({ message: 'Contest terminated', contest });
+  } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
+// Subject Routes
+app.post('/api/subjects', async (req, res) => {
+  try {
+    const { name, description, createdBy } = req.body;
+    const subject = new Subject({ name, description, createdBy });
+    await subject.save();
+    res.status(201).json(subject);
+  } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
+app.get('/api/subjects/faculty/:facultyId', async (req, res) => {
+  try {
+    const subjects = await Subject.find({
+      $or: [
+        { createdBy: req.params.facultyId },
+        { teachingAssistants: req.params.facultyId }
+      ]
+    });
+    res.json(subjects);
+  } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
+app.get('/api/subjects/student/:studentId', async (req, res) => {
+  try {
+    const subjects = await Subject.find({ students: req.params.studentId }).populate('createdBy', 'name');
+    res.json(subjects);
+  } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
+app.get('/api/subjects/:id', async (req, res) => {
+  try {
+    const subject = await Subject.findById(req.params.id)
+      .populate('students', 'name idNumber email')
+      .populate('teachingAssistants', 'name email');
+    res.json(subject);
+  } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
+app.post('/api/subjects/:id/invite-ta', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { email } = req.body;
+    const ta = await User.findOne({ email: email.trim().toLowerCase(), role: 'faculty' });
+    if (!ta) return res.status(404).json({ message: 'Faculty member not found with this email' });
+    
+    const subject = await Subject.findByIdAndUpdate(id, { $addToSet: { teachingAssistants: ta._id } }, { new: true });
+    res.json({ message: 'TA invited successfully', subject });
+  } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
+app.post('/api/subjects/:id/invite-students', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { emails } = req.body;
+    if (!emails || !Array.isArray(emails)) return res.status(400).json({ message: 'Invalid emails array' });
+    const cleanEmails = emails.map(e => e.trim().toLowerCase());
+    const students = await User.find({ email: { $in: cleanEmails }, role: 'student' });
+    const studentIds = students.map(s => s._id);
+    const missingEmails = cleanEmails.filter(e => !students.map(s => s.email).includes(e));
+    
+    const subject = await Subject.findByIdAndUpdate(id, { $addToSet: { students: { $each: studentIds } } }, { new: true });
+    
+    // Also add to all existing contests in this subject
+    await Contest.updateMany(
+      { subjectId: id },
+      { $addToSet: { participants: { $each: studentIds } } }
+    );
+
+    res.json({ message: 'Success', count: studentIds.length, missingCount: missingEmails.length, missingEmails, subject });
+  } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
+app.get('/api/subjects/:id/contests', async (req, res) => {
+  try {
+    const contests = await Contest.find({ subjectId: req.params.id }).populate('participants', 'name idNumber');
+    await updateContestStatus(contests);
+    res.json(contests);
+  } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
+app.get('/api/subjects/:id/assignments', async (req, res) => {
+  try {
+    const assignments = await Assignment.find({ subjectId: req.params.id });
+    res.json(assignments);
+  } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
+// Assignment Routes
+app.post('/api/assignments', async (req, res) => {
+  try {
+    const assignment = new Assignment(req.body);
+    await assignment.save();
+    res.status(201).json(assignment);
+  } catch (error) { res.status(500).json({ message: error.message }); }
+});
+
+app.post('/api/assignments/:id/terminate', async (req, res) => {
+  try {
+    const assignment = await Assignment.findByIdAndUpdate(
+      req.params.id,
+      { status: 'ended' },
+      { new: true }
+    );
+    res.json({ message: 'Assignment terminated', assignment });
   } catch (error) { res.status(500).json({ message: error.message }); }
 });
 

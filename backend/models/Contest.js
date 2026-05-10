@@ -23,6 +23,11 @@ const contestSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  subjectId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Subject',
+    required: true
+  },
   participants: [{
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'

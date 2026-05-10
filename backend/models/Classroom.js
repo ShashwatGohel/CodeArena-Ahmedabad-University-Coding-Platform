@@ -18,7 +18,15 @@ const subjectSchema = new mongoose.Schema({
   createdAt: {
     type: Date,
     default: Date.now
-  }
+  },
+  students: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }],
+  teachingAssistants: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User'
+  }]
 });
 
 module.exports = mongoose.model('Subject', subjectSchema);
