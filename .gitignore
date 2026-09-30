@@ -1,0 +1,6 @@
+**ignore**/
+*.env
+
+**/.venv/**
+**/node_modules/**
+**/.vscode/**
